@@ -18,10 +18,10 @@ static USER_ID_GEN: AtomicUsize = AtomicUsize::new(1);
 async fn on_user_connected(ws: WebSocket, users: Users) {
     let local_id = USER_ID_GEN.fetch_add(1, Ordering::Relaxed);
 
-    eprintln!("new user id: {}", local_id);
-
     let (mut user_ws_tx, mut user_ws_rx) = ws.split();
 
+    // Use the tx & rx queues as unbounded in-memory buffers for
+    // queueing, buffering, and flushing messages.
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
