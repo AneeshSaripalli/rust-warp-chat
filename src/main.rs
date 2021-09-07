@@ -7,11 +7,14 @@ use std::sync::{
 use futures::{SinkExt, StreamExt, TryFutureExt};
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use warp::reply::Html;
 use warp::ws::{Message, WebSocket};
 use warp::Filter;
 
 type UID = usize;
 type Users = Arc<RwLock<HashMap<UID, mpsc::UnboundedSender<Message>>>>;
+
+type HistoryBuffer = Arc<RwLock<Vec<Message>>>;
 
 static USER_ID_GEN: AtomicUsize = AtomicUsize::new(1);
 
@@ -97,6 +100,9 @@ async fn main() {
     let users = Users::default();
     let users = warp::any().map(move || users.clone());
 
+    let history_buffer = HistoryBuffer::default();
+    let history_buffer = warp::any().map(move || history_buffer.clone());
+
     let chat = warp::path("chat")
         .and(warp::ws())
         .and(users)
@@ -104,9 +110,39 @@ async fn main() {
             ws.on_upgrade(move |socket| on_user_connected(socket, users))
         });
 
-    let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
+    let history = warp::path("history")
+        .and(history_buffer)
+        .map(|history_buffer: HistoryBuffer| {
+            let mut messages: Vec<Message> = vec![];
 
-    let all_routes = index.or(chat);
+            let mut history_read_mutex = history_buffer.try_read();
+            while history_buffer.try_read().is_err() {
+                history_read_mutex = history_buffer.try_read();
+            }
+
+            for message in history_read_mutex.unwrap().iter() {
+                messages.push(message.clone());
+            }
+
+            warp::reply::html(format!(
+                r#"<!DOCTYPE html>
+    <html lang="en">
+        <head>
+            <title>Basic Rust Warp Chat</title>
+        </head>
+        <body>
+            <h1>
+                History!
+            </h1>
+            {}
+        </body>
+    </html>
+    "#,
+                "abcd"
+            ))
+        });
+    let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
+    let all_routes = index.or(history).or(chat);
 
     warp::serve(all_routes).run(([127, 0, 0, 1], 8000)).await;
 }
